@@ -4,6 +4,8 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -25,17 +27,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var logTv: TextView
     private lateinit var startStopBtn: TextView
     private lateinit var serviceStatusTv: TextView
-
+    private lateinit var overlayStatusTv: TextView
     private lateinit var textClickSection: LinearLayout
     private lateinit var targetTextInput: EditText
-
     private lateinit var slideSection: LinearLayout
     private lateinit var fromXInput: EditText
     private lateinit var fromYInput: EditText
     private lateinit var toXInput: EditText
     private lateinit var toYInput: EditText
     private lateinit var slideDurInput: EditText
-
     private lateinit var tabTextClick: TextView
     private lateinit var tabSlide: TextView
     private lateinit var intervalInput: EditText
@@ -61,6 +61,15 @@ class MainActivity : AppCompatActivity() {
         AutoClickerService.onClickCallback = { msg -> runOnUiThread { addLog(msg) } }
     }
 
+    override fun onResume() {
+        super.onResume()
+        updateOverlayStatus()
+    }
+
+    private fun hasOverlayPermission() =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+            Settings.canDrawOverlays(this) else true
+
     private fun buildUI(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -74,10 +83,10 @@ class MainActivity : AppCompatActivity() {
             setPadding(16, 40, 16, 12)
             setBackgroundColor(Color.parseColor("#1A1A2E"))
         }
-        topBar.addView(mkTv("⚡ Auto Clicker Ultra", 20f, "#F9D423", true).apply {
+        topBar.addView(mkTv("⚡ Auto Clicker Ultra", 18f, "#F9D423", true).apply {
             layoutParams = LinearLayout.LayoutParams(0, WRAP, 1f)
         })
-        serviceStatusTv = mkTv("● OFF", 13f, "#FF5252", true)
+        serviceStatusTv = mkTv("● OFF", 12f, "#FF5252", true)
         topBar.addView(serviceStatusTv)
         root.addView(topBar)
 
@@ -87,21 +96,39 @@ class MainActivity : AppCompatActivity() {
             setPadding(16, 16, 16, 16)
         }
 
-        // ── Permission Card ──────────────────────────────────
-        val permCard = buildCard()
-        permCard.addView(mkTv("🔧 Accessibility Permission", 14f, "#A78BFA", true))
-        permCard.addView(mkTv("প্রথমে Accessibility Service চালু করতে হবে", 12f, "#AAAAAA", false).apply {
+        // ── Permission Cards ─────────────────────────────────
+        // Accessibility
+        val accCard = buildCard()
+        accCard.addView(mkTv("🔧 ধাপ ১ — Accessibility Permission", 14f, "#A78BFA", true))
+        accCard.addView(mkTv("Accessibility Service চালু করতে হবে", 12f, "#AAAAAA", false).apply {
             setPadding(0, 4, 0, 10)
         })
-        permCard.addView(mkBtn("⚙️  Accessibility Settings খুলুন", "#667EEA", "#764BA2") {
+        accCard.addView(mkBtn("⚙️  Accessibility Settings", "#667EEA", "#764BA2") {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         })
-        inner.addView(permCard, mpCard())
+        inner.addView(accCard, mpCard())
+
+        // Overlay permission
+        val overlayCard = buildCard()
+        overlayCard.addView(mkTv("🪟 ধাপ ২ — Overlay Permission", 14f, "#A78BFA", true))
+        overlayStatusTv = mkTv("❌ চালু নেই", 12f, "#FF5252", false).apply {
+            setPadding(0, 4, 0, 10)
+        }
+        overlayCard.addView(overlayStatusTv)
+        overlayCard.addView(mkBtn("🪟  Overlay Permission দাও", "#F9D423", "#FF6B35") {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                startActivity(Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                ))
+            }
+        })
+        inner.addView(overlayCard, mpCard())
 
         // ── Mode Tabs ────────────────────────────────────────
         val tabRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 8, 0, 0)
+            setPadding(0, 4, 0, 0)
         }
         tabTextClick = mkBtn("📝 টেক্সট ক্লিক", "#F9D423", "#FF6B35") { switchMode(true) }
         tabSlide     = mkBtn("↕️  স্লাইড", "#333355", "#333355") { switchMode(false) }
@@ -115,16 +142,12 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 0, 0, 8)
         })
         targetTextInput = EditText(this).apply {
-            hint = "যেমন: OK, Skip, Next, সম্মত..."
+            hint = "যেমন: Delete, OK, Skip, Next..."
             setHintTextColor(Color.parseColor("#666688"))
             setTextColor(Color.WHITE)
             textSize = 15f
             setPadding(16, 14, 16, 14)
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#22FFFFFF"))
-                cornerRadius = 12f
-                setStroke(1, Color.parseColor("#44FFFFFF"))
-            }
+            background = inputBg()
             addTextChangedListener(object : TextWatcher {
                 override fun afterTextChanged(s: Editable?) {
                     AutoClickerService.targetText = s.toString()
@@ -134,7 +157,7 @@ class MainActivity : AppCompatActivity() {
             })
         }
         textClickSection.addView(targetTextInput, LinearLayout.LayoutParams(MATCH, WRAP))
-        textClickSection.addView(mkTv("💡 স্ক্রিনে এই লেখা দেখলেই ক্লিক করবে", 11f, "#8888AA", false).apply {
+        textClickSection.addView(mkTv("💡 Facebook → Friend Requests → Delete লিখো", 11f, "#8888AA", false).apply {
             setPadding(0, 8, 0, 0)
         })
         inner.addView(textClickSection, mpCard())
@@ -142,37 +165,22 @@ class MainActivity : AppCompatActivity() {
         // ── Slide Section ────────────────────────────────────
         slideSection = buildCard()
         slideSection.visibility = View.GONE
-        slideSection.addView(mkTv("↕️ স্লাইড সেটিংস", 13f, "#CCCCCC", true).apply {
-            setPadding(0, 0, 0, 12)
-        })
-
-        slideSection.addView(mkTv("শুরুর অবস্থান (From):", 12f, "#AAAAAA", false).apply {
-            setPadding(0,0,0,6)
-        })
+        slideSection.addView(mkTv("↕️ স্লাইড সেটিংস", 13f, "#CCCCCC", true).apply { setPadding(0,0,0,12) })
+        slideSection.addView(mkTv("শুরুর অবস্থান (From):", 12f, "#AAAAAA", false).apply { setPadding(0,0,0,6) })
         val fromRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        fromXInput = mkNumInput("X (বাম-ডান)", "500")
-        fromYInput = mkNumInput("Y (উপর-নিচ)", "1200")
+        fromXInput = mkNumInput("X", "500"); fromYInput = mkNumInput("Y", "1200")
         fromRow.addView(fromXInput, LinearLayout.LayoutParams(0, WRAP, 1f).apply { setMargins(0,0,8,0) })
         fromRow.addView(fromYInput, LinearLayout.LayoutParams(0, WRAP, 1f))
         slideSection.addView(fromRow, LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(0,0,0,12) })
-
-        slideSection.addView(mkTv("শেষের অবস্থান (To):", 12f, "#AAAAAA", false).apply {
-            setPadding(0,0,0,6)
-        })
+        slideSection.addView(mkTv("শেষের অবস্থান (To):", 12f, "#AAAAAA", false).apply { setPadding(0,0,0,6) })
         val toRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        toXInput = mkNumInput("X (বাম-ডান)", "500")
-        toYInput = mkNumInput("Y (উপর-নিচ)", "400")
+        toXInput = mkNumInput("X", "500"); toYInput = mkNumInput("Y", "400")
         toRow.addView(toXInput, LinearLayout.LayoutParams(0, WRAP, 1f).apply { setMargins(0,0,8,0) })
         toRow.addView(toYInput, LinearLayout.LayoutParams(0, WRAP, 1f))
         slideSection.addView(toRow, LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(0,0,0,12) })
-
-        slideSection.addView(mkTv("স্লাইডের সময় (millisecond):", 12f, "#AAAAAA", false).apply {
-            setPadding(0,0,0,6)
-        })
-        slideDurInput = mkNumInput("যেমন: 300", "300")
+        slideSection.addView(mkTv("Duration (ms):", 12f, "#AAAAAA", false).apply { setPadding(0,0,0,6) })
+        slideDurInput = mkNumInput("300", "300")
         slideSection.addView(slideDurInput, LinearLayout.LayoutParams(MATCH, WRAP))
-        slideSection.addView(mkTv("💡 Developer options → Pointer location চালু করলে X,Y দেখা যাবে",
-            11f, "#8888AA", false).apply { setPadding(0, 12, 0, 0) })
         inner.addView(slideSection, mpCard())
 
         // ── Interval Card ────────────────────────────────────
@@ -188,19 +196,19 @@ class MainActivity : AppCompatActivity() {
         intCard.addView(qRow)
         inner.addView(intCard, mpCard())
 
-        // ── Status Card ──────────────────────────────────────
+        // ── Status ───────────────────────────────────────────
         val statCard = buildCard()
         statusTv = mkTv("⏹ বন্ধ আছে", 15f, "#FF5252", true).apply { gravity = Gravity.CENTER }
         statCard.addView(statusTv)
         inner.addView(statCard, mpCard())
 
-        // ── Start/Stop Button ────────────────────────────────
-        startStopBtn = mkBtn("▶  শুরু করুন", "#43A047", "#1B5E20") { toggleService() }
-        startStopBtn.textSize = 18f
-        startStopBtn.setPadding(0, 24, 0, 24)
+        // ── Start/Stop ───────────────────────────────────────
+        startStopBtn = mkBtn("▶  শুরু করুন (Floating বাটন আসবে)", "#43A047", "#1B5E20") { toggleService() }
+        startStopBtn.textSize = 16f
+        startStopBtn.setPadding(0, 22, 0, 22)
         inner.addView(startStopBtn, LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(0,0,0,12) })
 
-        // ── Log Card ─────────────────────────────────────────
+        // ── Log ──────────────────────────────────────────────
         val logCard = buildCard()
         logCard.addView(mkTv("📋 লগ", 13f, "#CCCCCC", true).apply { setPadding(0,0,0,8) })
         logTv = mkTv("এখানে activity দেখাবে...", 11f, "#8888AA", false).apply {
@@ -240,14 +248,25 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             return
         }
+        if (!hasOverlayPermission()) {
+            toast("⚠️ Overlay Permission দিন!")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                startActivity(Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                ))
+            }
+            return
+        }
 
         if (AutoClickerService.isRunning) {
-            svc.stopService()
-            startStopBtn.text = "▶  শুরু করুন"
+            svc.stopClicker()
+            svc.removeFloatingWindow()
+            startStopBtn.text = "▶  শুরু করুন (Floating বাটন আসবে)"
             startStopBtn.background = gradBg("#43A047", "#1B5E20")
-            statusTv.text = "⏹ বন্ধ করা হয়েছে"
+            statusTv.text = "⏹ বন্ধ"
             statusTv.setTextColor(Color.parseColor("#FF5252"))
-            addLog("🛑 সার্ভিস বন্ধ")
+            addLog("🛑 বন্ধ করা হয়েছে")
         } else {
             if (isTextMode && targetTextInput.text.toString().trim().isEmpty()) {
                 toast("লেখা দিন যেটায় ক্লিক করবে!"); return
@@ -262,13 +281,15 @@ class MainActivity : AppCompatActivity() {
                 AutoClickerService.slideToY        = toYInput.text.toString().toFloatOrNull() ?: 400f
                 AutoClickerService.slideDurationMs = slideDurInput.text.toString().toLongOrNull() ?: 300L
             }
-            svc.startService()
+            svc.startClicker()
+            svc.showFloatingWindow()
+
             startStopBtn.text = "⏹  বন্ধ করুন"
             startStopBtn.background = gradBg("#E53935", "#B71C1C")
-            val modeStr = if (isTextMode) "\"${AutoClickerService.targetText}\" তে ক্লিক" else "স্লাইড"
-            statusTv.text = "▶ চলছে — $modeStr"
+            val modeStr = if (isTextMode) "\"${AutoClickerService.targetText}\"" else "স্লাইড"
+            statusTv.text = "▶ চলছে — $modeStr তে ক্লিক\n📌 এখন Facebook এ যান!"
             statusTv.setTextColor(Color.parseColor("#69F0AE"))
-            addLog("▶ শুরু — ${AutoClickerService.intervalMs}ms বিরতিতে")
+            addLog("▶ শুরু — Floating button দেখাচ্ছে")
         }
     }
 
@@ -277,6 +298,13 @@ class MainActivity : AppCompatActivity() {
         serviceStatusTv.text = if (active) "● চালু" else "● OFF"
         serviceStatusTv.setTextColor(
             if (active) Color.parseColor("#69F0AE") else Color.parseColor("#FF5252"))
+    }
+
+    private fun updateOverlayStatus() {
+        val has = hasOverlayPermission()
+        overlayStatusTv.text = if (has) "✅ Permission আছে" else "❌ Permission নেই"
+        overlayStatusTv.setTextColor(
+            if (has) Color.parseColor("#69F0AE") else Color.parseColor("#FF5252"))
     }
 
     private fun addLog(msg: String) {
@@ -307,6 +335,12 @@ class MainActivity : AppCompatActivity() {
         setColor(Color.parseColor(c))
     }
 
+    private fun inputBg() = GradientDrawable().apply {
+        setColor(Color.parseColor("#22FFFFFF"))
+        cornerRadius = 12f
+        setStroke(1, Color.parseColor("#44FFFFFF"))
+    }
+
     private fun mkTv(text: String, size: Float, color: String, bold: Boolean) =
         TextView(this).apply {
             this.text = text; textSize = size
@@ -316,10 +350,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun mkBtn(text: String, c1: String, c2: String, onClick: () -> Unit) =
         TextView(this).apply {
-            this.text = text; textSize = 15f
+            this.text = text; textSize = 14f
             setTextColor(Color.WHITE); gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(32, 18, 32, 18); elevation = 6f
+            setPadding(24, 18, 24, 18); elevation = 6f
             background = gradBg(c1, c2)
             setOnClickListener { onClick() }
         }
@@ -342,18 +376,11 @@ class MainActivity : AppCompatActivity() {
             setHintTextColor(Color.parseColor("#666688"))
             setTextColor(Color.WHITE); textSize = 14f
             setPadding(16, 12, 16, 12)
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#22FFFFFF"))
-                cornerRadius = 12f
-                setStroke(1, Color.parseColor("#44FFFFFF"))
-            }
+            background = inputBg()
         }
 
-    private fun mpCard() =
-        LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(0, 0, 0, 12) }
-
-    private fun toast(msg: String) =
-        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    private fun mpCard() = LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(0,0,0,12) }
+    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
     override fun onDestroy() {
         super.onDestroy()
