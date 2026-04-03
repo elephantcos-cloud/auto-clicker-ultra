@@ -5,12 +5,14 @@ import android.accessibilityservice.GestureDescription
 import android.graphics.Color
 import android.graphics.Path
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
@@ -69,11 +71,10 @@ class AutoClickerService : AccessibilityService() {
         if (floatingView != null) return
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
-        // Root layout
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(8, 8, 8, 8)
+            setPadding(10, 10, 10, 10)
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#CC1A1A2E"))
                 cornerRadius = 16f
@@ -81,7 +82,6 @@ class AutoClickerService : AccessibilityService() {
             }
         }
 
-        // Click count
         floatCount = TextView(this).apply {
             text = "0 ক্লিক"
             textSize = 11f
@@ -92,13 +92,12 @@ class AutoClickerService : AccessibilityService() {
         }
         root.addView(floatCount)
 
-        // Play/Stop button
         floatBtn = TextView(this).apply {
             text = "▶"
-            textSize = 22f
+            textSize = 24f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-            setPadding(18, 14, 18, 14)
+            setPadding(20, 16, 20, 16)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(Color.parseColor("#43A047"))
@@ -107,17 +106,14 @@ class AutoClickerService : AccessibilityService() {
         }
         root.addView(floatBtn)
 
-        // Status text
-        val statusTxt = TextView(this).apply {
+        val labelTxt = TextView(this).apply {
             text = "\"$targetText\""
             textSize = 10f
             setTextColor(Color.parseColor("#AAAAAA"))
             gravity = Gravity.CENTER
             setPadding(0, 6, 0, 0)
-            maxWidth = 200
-            isSingleLine = false
         }
-        root.addView(statusTxt)
+        root.addView(labelTxt)
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -130,19 +126,17 @@ class AutoClickerService : AccessibilityService() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 20
-            y = 300
+            x = 20; y = 300
         }
 
-        // Drag support
-        var lastX = 0; var lastY = 0; var initX = 0; var initY = 0
+        var initX = 0; var initY = 0; var lastX = 0; var lastY = 0
         root.setOnTouchListener { _, event ->
             when (event.action) {
-                android.view.MotionEvent.ACTION_DOWN -> {
+                MotionEvent.ACTION_DOWN -> {
                     lastX = event.rawX.toInt(); lastY = event.rawY.toInt()
                     initX = params.x; initY = params.y
                 }
-                android.view.MotionEvent.ACTION_MOVE -> {
+                MotionEvent.ACTION_MOVE -> {
                     params.x = initX + (event.rawX.toInt() - lastX)
                     params.y = initY + (event.rawY.toInt() - lastY)
                     windowManager?.updateViewLayout(root, params)
@@ -191,11 +185,14 @@ class AutoClickerService : AccessibilityService() {
         handler.removeCallbacks(runnable)
     }
 
-    // ── TEXT CLICK ───────────────────────────────────────────
+    // ── TEXT CLICK (GESTURE দিয়ে) ────────────────────────────
     private fun performTextClick() {
-        val root = rootInActiveWindow ?: return
+        val root = rootInActiveWindow ?: run {
+            onClickCallback?.invoke("⚠️ স্ক্রিন পড়তে পারছি না")
+            return
+        }
 
-        // নিজের app-এ ক্লিক করবে না
+        // নিজের app skip
         val pkg = root.packageName?.toString() ?: ""
         if (pkg == "com.autoclicker.ultra") {
             root.recycle()
@@ -203,30 +200,74 @@ class AutoClickerService : AccessibilityService() {
             return
         }
 
-        val found = findNodeByText(root, targetText.trim())
-        if (found != null) {
-            val clicked = found.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            if (!clicked) found.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            clickCount++
-            handler.post {
-                if (::floatCount.isInitialized) floatCount.text = "$clickCount ক্লিক"
+        val searchText = targetText.trim()
+        val node = findNodeByText(root, searchText)
+
+        if (node != null) {
+            val bounds = Rect()
+            node.getBoundsInScreen(bounds)
+
+            if (bounds.width() > 0 && bounds.height() > 0) {
+                // Center এ gesture দিয়ে ক্লিক করো
+                val cx = bounds.centerX().toFloat()
+                val cy = bounds.centerY().toFloat()
+                tapAt(cx, cy)
+                clickCount++
+                handler.post {
+                    if (::floatCount.isInitialized) floatCount.text = "$clickCount ক্লিক"
+                }
+                onClickCallback?.invoke("✅ ক্লিক #$clickCount — ($cx, $cy) — $pkg")
+            } else {
+                // bounds পেলাম না, ACTION_CLICK চেষ্টা করি
+                val clicked = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                if (!clicked) node.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                clickCount++
+                handler.post {
+                    if (::floatCount.isInitialized) floatCount.text = "$clickCount ক্লিক"
+                }
+                onClickCallback?.invoke("✅ ACTION_CLICK #$clickCount — $pkg")
             }
-            onClickCallback?.invoke("✅ ক্লিক #$clickCount — \"$targetText\" — $pkg")
-            found.recycle()
+            node.recycle()
         } else {
-            onClickCallback?.invoke("🔍 \"$targetText\" খুঁজছি... ($pkg)")
+            onClickCallback?.invoke("🔍 \"$searchText\" খুঁজছি... ($pkg)")
         }
         root.recycle()
     }
 
+    // স্ক্রিনের যেকোনো জায়গায় tap করার gesture
+    private fun tapAt(x: Float, y: Float) {
+        val path = Path().apply { moveTo(x, y); lineTo(x, y) }
+        val stroke = GestureDescription.StrokeDescription(path, 0, 50)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        dispatchGesture(gesture, object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                // সফল
+            }
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                onClickCallback?.invoke("⚠️ Gesture বাতিল হয়েছে")
+            }
+        }, null)
+    }
+
+    // সব ধরনের node খোঁজার উন্নত পদ্ধতি
     private fun findNodeByText(node: AccessibilityNodeInfo, text: String): AccessibilityNodeInfo? {
         if (text.isEmpty()) return null
+
+        // ১. সরাসরি text match
         val nodeText = node.text?.toString() ?: ""
         val nodeDesc = node.contentDescription?.toString() ?: ""
+        val nodeHint = node.hintText?.toString() ?: ""
+        val nodeTooltip = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
+            node.tooltipText?.toString() ?: "" else ""
+
         if (nodeText.contains(text, ignoreCase = true) ||
-            nodeDesc.contains(text, ignoreCase = true)) {
+            nodeDesc.contains(text, ignoreCase = true) ||
+            nodeHint.contains(text, ignoreCase = true) ||
+            nodeTooltip.contains(text, ignoreCase = true)) {
             return AccessibilityNodeInfo.obtain(node)
         }
+
+        // ২. Child দের মধ্যে খোঁজো
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             val result = findNodeByText(child, text)
